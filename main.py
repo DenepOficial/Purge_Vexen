@@ -230,23 +230,24 @@ async def limpiar_ahora(interaction: discord.Interaction):
         await interaction.response.send_message("Este comando solo puede usarse dentro de un servidor.", ephemeral=True)
         return
 
+    # Sigue respetando que el servidor principal sea miembro de la whitelist
     if not is_whitelisted(interaction.guild_id):
         await interaction.response.send_message("Este servidor no esta autorizado.", ephemeral=True)
         return
 
-    if guild_id not in linked_channels or channel_id not in linked_channels[guild_id]:
-        await interaction.response.send_message("Por seguridad, solo se pueden limpiar canales que esten vinculados mediante `/link`.", ephemeral=True)
-        return
-
-    # Responder primero de forma efímera para evitar el timeout del comando de Discord
-    await interaction.response.send_message("Iniciando limpieza inmediata...", ephemeral=True)
+    # 1. Respondemos de inmediato de forma efímera para evitar el timeout de 3 segundos de Discord
+    await interaction.response.send_message("Iniciando limpieza inmediata en este canal...", ephemeral=True)
     
-    # Realizar purga
+    # 2. Ejecutamos la purga completa de mensajes
     await purge_channel(interaction.channel)
     
-    # Actualizar la fecha de última limpieza en la base de datos para reiniciar su contador automático
-    linked_channels[guild_id][channel_id]["last_clean"] = datetime.now(timezone.utc).isoformat()
-    save_linked_channels()
+    # 3. Verificamos si ESTE canal en específico tenía una limpieza automática programada con /link
+    # Si estaba en la lista, reiniciamos su contador para que no vuelva a borrar pronto.
+    # Si NO estaba en la lista, no pasa nada; se limpia en el momento y el bot no lo guardará para el auto-borrado.
+    if guild_id in linked_channels and channel_id in linked_channels[guild_id]:
+        linked_channels[guild_id][channel_id]["last_clean"] = datetime.now(timezone.utc).isoformat()
+        save_linked_channels()
+        print(f"Limpieza manual ejecutada. Se reinició el contador automático para el canal {channel_id}.")
 
 # =========================
 # TAREA AUTOMATICA DE LIMPIEZA (REVISIÓN CADA MINUTO)
