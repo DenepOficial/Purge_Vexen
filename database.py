@@ -26,7 +26,10 @@ async def create_pool():
         _pool = await asyncpg.create_pool(
             DATABASE_URL,
             min_size=1,
-            max_size=5
+            max_size=5,
+            server_settings={
+                "application_name": BOT_NAME
+            }
         )
 
         print(f"✅ PostgreSQL conectado para {BOT_NAME}")
