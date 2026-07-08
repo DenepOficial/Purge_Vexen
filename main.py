@@ -324,12 +324,14 @@ async def agregar_rol_limpieza(
 
 
     # Verificar que el usuario tenga un rol autorizado
-    if not await has_allowed_role(interaction.user):
-        await interaction.response.send_message(
-            "❌ No tienes permisos para agregar roles.",
-            ephemeral=True
-        )
-        return
+    if not interaction.user.guild_permissions.administrator:
+
+        if not await has_allowed_role(interaction.user):
+            await interaction.response.send_message(
+                "❌ No tienes permisos para agregar roles.",
+                ephemeral=True
+            )
+            return
 
 
     # Convertir ID recibido
