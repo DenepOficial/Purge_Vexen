@@ -199,6 +199,83 @@ async def purge_channel(channel: discord.TextChannel) -> int:
 # SLASH COMMANDS
 # =========================
 
+@tree.command(
+    name="agregar_rol_limpieza",
+    description="Agrega un ID de rol autorizado para comandos privados"
+)
+@app_commands.describe(
+    rol_id="ID del rol que tendrá acceso"
+)
+async def agregar_rol_limpieza(
+    interaction: discord.Interaction,
+    rol_id: str
+):
+
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "Este comando solo funciona dentro de servidores.",
+            ephemeral=True
+        )
+        return
+
+
+    # Verificar que el usuario tenga un rol autorizado
+    if not has_allowed_role(interaction.user):
+        await interaction.response.send_message(
+            "❌ No tienes permisos para agregar roles.",
+            ephemeral=True
+        )
+        return
+
+
+    # Convertir ID recibido
+    try:
+        rol_id_int = int(rol_id)
+
+    except ValueError:
+        await interaction.response.send_message(
+            "❌ El ID del rol debe contener solamente números.",
+            ephemeral=True
+        )
+        return
+
+
+    # Verificar que el rol existe
+    rol = interaction.guild.get_role(rol_id_int)
+
+    if rol is None:
+        await interaction.response.send_message(
+            f"❌ No encontré ningún rol con el ID `{rol_id_int}`.",
+            ephemeral=True
+        )
+        return
+
+
+    roles_actuales = load_allowed_roles()
+
+
+    # Evitar duplicados
+    if rol_id_int in roles_actuales:
+        await interaction.response.send_message(
+            f"⚠️ El rol `{rol_id_int}` ya está autorizado.",
+            ephemeral=True
+        )
+        return
+
+
+    # Guardar nuevo rol
+    roles_actuales.add(rol_id_int)
+
+    save_allowed_roles(roles_actuales)
+
+
+    await interaction.response.send_message(
+        "✅ Rol agregado correctamente.\n\n"
+        f"🆔 ID: `{rol_id_int}`\n"
+        f"🏷️ Nombre actual: `{rol.name}`",
+        ephemeral=True
+    )
+
 @tree.command(name="link", description="Vincula este canal para que se limpie automaticamente")
 @app_commands.describe(horas="Cada cuantas horas se realizara la limpieza automatica (Por defecto: 24)")
 @app_commands.default_permissions(manage_channels=True)
