@@ -66,7 +66,10 @@ async def create_tables(db):
         CREATE TABLE IF NOT EXISTS {schema}.allowed_roles (
 
             id SERIAL PRIMARY KEY,
-            role_id BIGINT UNIQUE NOT NULL
+            guild_id BIGINT NOT NULL,
+            role_id BIGINT NOT NULL,
+
+            UNIQUE(guild_id, role_id)
 
         );
         """
