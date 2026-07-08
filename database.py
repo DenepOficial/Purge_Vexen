@@ -26,21 +26,81 @@ async def create_pool():
         _pool = await asyncpg.create_pool(
             DATABASE_URL,
             min_size=1,
-            max_size=5,
-            server_settings={
-                "application_name": BOT_NAME
-            }
+            max_size=5
         )
 
         print(f"✅ PostgreSQL conectado para {BOT_NAME}")
 
+        await create_tables(_pool)
+
     return _pool
 
 
-async def close_pool():
 
-    global _pool
+async def create_tables(db):
 
-    if _pool:
-        await _pool.close()
-        _pool = None
+    schema = BOT_NAME.lower()
+
+
+    await db.execute(
+        f"""
+        CREATE SCHEMA IF NOT EXISTS {schema};
+        """
+    )
+
+
+    await db.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {schema}.whitelist (
+
+            id SERIAL PRIMARY KEY,
+            guild_id BIGINT UNIQUE NOT NULL
+
+        );
+        """
+    )
+
+
+    await db.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {schema}.allowed_roles (
+
+            id SERIAL PRIMARY KEY,
+            role_id BIGINT UNIQUE NOT NULL
+
+        );
+        """
+    )
+
+
+    await db.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {schema}.linked_channels (
+
+            id SERIAL PRIMARY KEY,
+            guild_id BIGINT NOT NULL,
+            channel_id BIGINT NOT NULL,
+            hours INTEGER NOT NULL,
+            last_clean TIMESTAMP NOT NULL,
+
+            UNIQUE(guild_id, channel_id)
+
+        );
+        """
+    )
+
+
+    await db.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {schema}.logs_channels (
+
+            id SERIAL PRIMARY KEY,
+            guild_id BIGINT UNIQUE NOT NULL,
+            channel_id BIGINT NOT NULL
+
+        );
+        """
+    )
+
+
+    print(f"✅ Tablas creadas en schema {schema}")
