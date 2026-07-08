@@ -459,6 +459,104 @@ async def quitar_rol_limpieza(
     )
 
 @tree.command(
+    name="listar_roles_limpieza",
+    description="Muestra los roles autorizados para usar el sistema de limpieza"
+)
+async def listar_roles_limpieza(
+    interaction: discord.Interaction
+):
+
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "Este comando solo funciona dentro de servidores.",
+            ephemeral=True
+        )
+        return
+
+
+    if not await can_use_cleanup(interaction.user):
+        await interaction.response.send_message(
+            "❌ No tienes permisos para ver los roles autorizados.",
+            ephemeral=True
+        )
+        return
+
+
+    roles_autorizados = await get_allowed_roles(
+        interaction.guild.id
+    )
+
+
+    if not roles_autorizados:
+
+        embed = discord.Embed(
+            title="🛡️ Roles autorizados de limpieza",
+            description=(
+                "No hay roles autorizados configurados actualmente."
+            ),
+            color=discord.Color.orange()
+        )
+
+        await interaction.response.send_message(
+            embed=embed,
+            ephemeral=True
+        )
+        return
+
+
+    embed = discord.Embed(
+        title="🛡️ Roles autorizados de limpieza",
+        description=(
+            "Roles que pueden usar los comandos privados del bot:"
+        ),
+        color=discord.Color.blue(),
+        timestamp=datetime.now(timezone.utc)
+    )
+
+
+    for role_id in roles_autorizados:
+
+        role = interaction.guild.get_role(
+            role_id
+        )
+
+
+        if role:
+
+            nombre = role.name
+
+            valor = (
+                f"ID: `{role.id}`\n"
+                f"Mención: {role.mention}"
+            )
+
+        else:
+
+            nombre = "⚠️ Rol eliminado"
+
+            valor = (
+                f"ID antiguo: `{role_id}`"
+            )
+
+
+        embed.add_field(
+            name=f"🔹 {nombre}",
+            value=valor,
+            inline=False
+        )
+
+
+    embed.set_footer(
+        text=f"Servidor: {interaction.guild.name}"
+    )
+
+
+    await interaction.response.send_message(
+        embed=embed,
+        ephemeral=True
+    )
+
+@tree.command(
     name="config_logs",
     description="Configura el canal privado donde se enviaran los logs"
 )
