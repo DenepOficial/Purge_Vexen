@@ -1,4 +1,4 @@
-import os
+    import os
 import json
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -133,6 +133,76 @@ tree = app_commands.CommandTree(client)
 # CANALES VINCULADOS Y CONFIGURACIÓN
 # =========================
 LINKED_CHANNELS_FILE = os.path.join(BASE_DIR, "linked_channels.json")
+
+# =========================
+# CONFIGURACION DE LOGS
+# =========================
+
+LOGS_FILE = os.path.join(BASE_DIR, "logs_channels.json")
+
+logs_channels: dict[str, str] = {}
+
+
+def load_logs_channels():
+    global logs_channels
+
+    if not os.path.exists(LOGS_FILE):
+        logs_channels = {}
+        return
+
+    try:
+        with open(LOGS_FILE, "r", encoding="utf-8") as file:
+            logs_channels = json.load(file)
+
+    except Exception as e:
+        print(f"Error cargando logs_channels.json: {e}")
+        logs_channels = {}
+
+
+def save_logs_channels():
+
+    try:
+        with open(LOGS_FILE, "w", encoding="utf-8") as file:
+            json.dump(
+                logs_channels,
+                file,
+                indent=4
+            )
+
+    except Exception as e:
+        print(f"Error guardando logs_channels.json: {e}")
+
+async def send_log(
+    guild: discord.Guild,
+    embed: discord.Embed
+):
+
+    guild_id = str(guild.id)
+
+    if guild_id not in logs_channels:
+        return
+
+    try:
+        channel_id = int(logs_channels[guild_id])
+    except:
+        return
+
+    channel = guild.get_channel(channel_id)
+
+    if channel is None:
+        try:
+            channel = await guild.fetch_channel(channel_id)
+
+        except:
+            return
+
+
+    try:
+        await channel.send(embed=embed)
+
+    except Exception as e:
+        print(f"Error enviando log: {e}")
+
 # Estructura interna: { "guild_id": { "channel_id": { "hours": int, "last_clean": "ISO_TIMESTAMP" } } }
 linked_channels: dict[str, dict[str, dict]] = {}
 
@@ -187,21 +257,37 @@ async def leave_if_not_whitelisted(guild: discord.Guild):
 # =========================
 # FUNCION AUXILIAR DE LIMPIEZA
 # =========================
+
+cleanup_lock = asyncio.Lock()
+
+
 async def purge_channel(channel: discord.TextChannel) -> int:
     """Borra todos los mensajes posibles de un canal."""
-    if not channel.permissions_for(channel.guild.me).manage_messages:
-        print(f"Falta permiso 'Gestionar Mensajes' en el canal {channel.name} ({channel.id})")
-        return 0
-    
-    deleted_count = 0
-    try:
-        # bulk=True usa el borrado rápido (mensajes de menos de 14 días)
-        # Si hay mensajes más viejos, los borra uno a uno automáticamente
-        deleted = await channel.purge(limit=None, bulk=True)
-        deleted_count = len(deleted)
-    except Exception as e:
-        print(f"Error al purgar el canal {channel.id}: {e}")
-    return deleted_count
+
+    async with cleanup_lock:
+
+        if not channel.permissions_for(channel.guild.me).manage_messages:
+            print(
+                f"Falta permiso 'Gestionar Mensajes' en el canal {channel.name} ({channel.id})"
+            )
+            return 0
+
+        deleted_count = 0
+
+        try:
+            deleted = await channel.purge(
+                limit=None,
+                bulk=True
+            )
+
+            deleted_count = len(deleted)
+
+        except Exception as e:
+            print(
+                f"Error al purgar el canal {channel.id}: {e}"
+            )
+
+        return deleted_count
 
 # =========================
 # SLASH COMMANDS
@@ -354,6 +440,66 @@ async def quitar_rol_limpieza(
         ephemeral=True
     )
 
+@tree.command(
+    name="config_logs",
+    description="Configura el canal privado donde se enviaran los logs"
+)
+@app_commands.describe(
+    canal="Canal privado para recibir los logs"
+)
+async def config_logs(
+    interaction: discord.Interaction,
+    canal: discord.TextChannel
+):
+
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "Este comando solo funciona dentro de servidores.",
+            ephemeral=True
+        )
+        return
+
+
+    if not can_use_cleanup(interaction.user):
+        await interaction.response.send_message(
+            "❌ No tienes permisos para configurar logs.",
+            ephemeral=True
+        )
+        return
+
+
+    logs_channels[str(interaction.guild.id)] = str(canal.id)
+
+    save_logs_channels()
+
+    await send_log(
+        interaction.guild,
+        discord.Embed(
+            title="📋 Sistema de Logs Activado",
+            description=(
+                f"El canal de logs fue configurado por {interaction.user.mention}\n"
+                f"Canal: {canal.mention}"
+            ),
+            color=discord.Color.green(),
+            timestamp=datetime.now(timezone.utc)
+        )
+    )
+
+    embed = discord.Embed(
+        title="📋 Logs configurados",
+        description=(
+            f"Canal de logs establecido correctamente:\n"
+            f"{canal.mention}"
+        ),
+        color=discord.Color.green()
+    )
+
+
+    await interaction.response.send_message(
+        embed=embed,
+        ephemeral=True
+    )
+
 @tree.command(name="link", description="Vincula este canal para que se limpie automaticamente")
 @app_commands.describe(horas="Cada cuantas horas se realizara la limpieza automatica (Por defecto: 24)")
 
@@ -368,6 +514,13 @@ async def link(interaction: discord.Interaction, horas: int = 24):
         
     guild_id = str(interaction.guild_id)
     channel_id = str(interaction.channel_id)
+
+    if not isinstance(interaction.channel, discord.TextChannel):
+        await interaction.response.send_message(
+            "Este comando solo funciona en canales de texto.",
+            ephemeral=True
+        )
+        return
 
     if interaction.guild_id is None:
         await interaction.response.send_message("Este comando solo puede usarse dentro de un servidor.", ephemeral=True)
@@ -394,6 +547,20 @@ async def link(interaction: discord.Interaction, horas: int = 24):
         "last_clean": datetime.now(timezone.utc).isoformat()
     }
     save_linked_channels()
+
+    await send_log(
+    interaction.guild,
+    discord.Embed(
+        title="🔗 Canal Vinculado",
+        description=(
+            f"Usuario: {interaction.user.mention}\n"
+            f"Canal: {interaction.channel.mention}\n"
+            f"Intervalo: **{horas} horas**"
+        ),
+        color=discord.Color.blue(),
+        timestamp=datetime.now(timezone.utc)
+    )
+)
 
     await interaction.response.send_message(
         f"Canal vinculado con exito. Este canal se limpiara por completo cada **{horas} horas**.",
@@ -424,6 +591,20 @@ async def unlink(interaction: discord.Interaction):
         if not linked_channels[guild_id]:
             del linked_channels[guild_id]
         save_linked_channels()
+
+        await send_log(
+            interaction.guild,
+            discord.Embed(
+                title="🔓 Canal Desvinculado",
+                description=(
+                    f"Usuario: {interaction.user.mention}\n"
+                    f"Canal: <#{channel_id}>"
+                ),
+                color=discord.Color.orange(),
+                timestamp=datetime.now(timezone.utc)
+            )
+        )
+    
         await interaction.response.send_message("Canal desvinculado. Ya no se realizaran limpiezas automaticas aqui.", ephemeral=True)
     else:
         await interaction.response.send_message("Este canal no estaba vinculado.", ephemeral=True)
@@ -453,6 +634,7 @@ async def configurar(interaction: discord.Interaction, horas: int):
             return
 
         linked_channels[guild_id][channel_id]["hours"] = horas
+        linked_channels[guild_id][channel_id]["last_clean"] = datetime.now(timezone.utc).isoformat()
         save_linked_channels()
         await interaction.response.send_message(f"Configuracion actualizada. Ahora este canal se limpiara cada **{horas} horas**.", ephemeral=True)
     else:
@@ -479,6 +661,8 @@ async def estado_limpieza(interaction: discord.Interaction):
         return
 
     guild_id = str(interaction.guild_id)
+
+    load_linked_channels()
 
     if guild_id not in linked_channels or not linked_channels[guild_id]:
 
@@ -629,15 +813,36 @@ async def limpiar_ahora(interaction: discord.Interaction):
     await interaction.response.send_message("Iniciando limpieza inmediata en este canal...", ephemeral=True)
     
     # 2. Ejecutamos la purga completa de mensajes
-    await purge_channel(interaction.channel)
+    deleted = await purge_channel(interaction.channel)
+
+    await send_log(
+        interaction.guild,
+        discord.Embed(
+            title="🧹 Limpieza Manual Ejecutada",
+            description=(
+                f"Usuario: {interaction.user.mention}\n"
+                f"Canal: {interaction.channel.mention}\n"
+                f"Mensajes eliminados: **{deleted}**"
+            ),
+            color=discord.Color.red(),
+            timestamp=datetime.now(timezone.utc)
+        )
+    )
     
     # 3. Verificamos si ESTE canal en específico tenía una limpieza automática programada con /link
     # Si estaba en la lista, reiniciamos su contador para que no vuelva a borrar pronto.
     # Si NO estaba en la lista, no pasa nada; se limpia en el momento y el bot no lo guardará para el auto-borrado.
-    if guild_id in linked_channels and channel_id in linked_channels[guild_id]:
-        linked_channels[guild_id][channel_id]["last_clean"] = datetime.now(timezone.utc).isoformat()
-        save_linked_channels()
-        print(f"Limpieza manual ejecutada. Se reinició el contador automático para el canal {channel_id}.")
+    if deleted > 0:
+
+        if guild_id in linked_channels and channel_id in linked_channels[guild_id]:
+
+            linked_channels[guild_id][channel_id]["last_clean"] = datetime.now(timezone.utc).isoformat()
+            save_linked_channels()
+    
+            print(
+                f"Limpieza manual ejecutada. "
+                f"Contador reiniciado para el canal {channel_id}."
+            )
 
 # =========================
 # TAREA AUTOMATICA DE LIMPIEZA (REVISIÓN CADA MINUTO)
@@ -671,7 +876,21 @@ async def auto_cleanER_task():
 
                     if isinstance(channel, discord.TextChannel):
                         print(f"Ejecutando limpieza automatica programada en el canal: {channel.name} ({c_id})")
-                        await purge_channel(channel)
+
+                        deleted = await purge_channel(channel)
+
+                        await send_log(
+                            channel.guild,
+                            discord.Embed(
+                                title="🧹 Limpieza Automática Ejecutada",
+                                description=(
+                                    f"Canal limpiado: {channel.mention}\n"
+                                    f"Mensajes eliminados: **{deleted}**"
+                                ),
+                                color=discord.Color.red(),
+                                timestamp=datetime.now(timezone.utc)
+                            )
+                        )
                         
                         # Actualizar tiempo de última limpieza exitosa
                         linked_channels[g_id][c_id]["last_clean"] = datetime.now(timezone.utc).isoformat()
@@ -692,7 +911,11 @@ async def auto_cleanER_task():
 # =========================
 @client.event
 async def on_ready():
+
+    global cleanup_lock
+    
     load_linked_channels()
+    load_logs_channels()
 
     for guild in client.guilds:
         await leave_if_not_whitelisted(guild)
