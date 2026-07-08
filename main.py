@@ -29,6 +29,65 @@ WHITELIST_FILE = os.path.join(BASE_DIR, "whitelist.json")
 SUPPORT_DISCORD = os.getenv("SUPPORT_DISCORD", "denepoficial")
 ACCESS_REQUEST_URL = os.getenv("ACCESS_REQUEST_URL", "https://discord.com/channels/@denepoficial")
 
+# =========================
+# ROLES PERMITIDOS COMANDOS PRIVADOS
+# =========================
+
+ROLES_FILE = os.path.join(BASE_DIR, "roles_permitidos.json")
+
+
+def load_allowed_roles() -> set[int]:
+    if not os.path.exists(ROLES_FILE):
+        print("roles_permitidos.json no existe.")
+        return set()
+
+    try:
+        with open(ROLES_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
+
+        roles = set()
+
+        for role_id in data.get("role_ids", []):
+            try:
+                roles.add(int(role_id))
+            except ValueError:
+                print(f"ID de rol invalido: {role_id}")
+
+        return roles
+
+    except Exception as e:
+        print(f"Error cargando roles permitidos: {e}")
+        return set()
+
+
+def save_allowed_roles(roles: set[int]):
+    try:
+        with open(ROLES_FILE, "w", encoding="utf-8") as file:
+            json.dump(
+                {
+                    "role_ids": [
+                        str(role_id) for role_id in roles
+                    ]
+                },
+                file,
+                indent=4
+            )
+
+    except Exception as e:
+        print(f"Error guardando roles permitidos: {e}")
+
+
+def has_allowed_role(member: discord.Member) -> bool:
+    allowed_roles = load_allowed_roles()
+
+    user_roles = {
+        role.id for role in member.roles
+    }
+
+    return bool(
+        user_roles.intersection(allowed_roles)
+    )
+
 def load_whitelisted_guilds() -> set[int]:
     if not os.path.exists(WHITELIST_FILE):
         print("whitelist.json no existe. Ningun servidor esta autorizado.")
