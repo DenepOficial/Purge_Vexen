@@ -261,7 +261,7 @@ async def leave_if_not_whitelisted(guild: discord.Guild):
 cleanup_lock = asyncio.Lock()
 
 
-async def purge_channel(channel: discord.TextChannel) -> int:
+async def purge_channel(channel) -> int:
     """Borra todos los mensajes posibles de un canal."""
 
     async with cleanup_lock:
@@ -515,9 +515,9 @@ async def link(interaction: discord.Interaction, horas: int = 24):
     guild_id = str(interaction.guild_id)
     channel_id = str(interaction.channel_id)
 
-    if not isinstance(interaction.channel, discord.TextChannel):
+    if not isinstance(interaction.channel, (discord.TextChannel, discord.VoiceChannel)):
         await interaction.response.send_message(
-            "Este comando solo funciona en canales de texto.",
+             "Este comando solo funciona en canales con chat.",
             ephemeral=True
         )
         return
@@ -874,7 +874,7 @@ async def auto_cleanER_task():
                         except Exception:
                             channel = None
 
-                    if isinstance(channel, discord.TextChannel):
+                    if isinstance(channel, (discord.TextChannel, discord.VoiceChannel)):
                         print(f"Ejecutando limpieza automatica programada en el canal: {channel.name} ({c_id})")
 
                         deleted = await purge_channel(channel)
