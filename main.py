@@ -88,6 +88,14 @@ def has_allowed_role(member: discord.Member) -> bool:
         user_roles.intersection(allowed_roles)
     )
 
+def can_use_cleanup(member: discord.Member) -> bool:
+    # Administradores siempre tienen acceso
+    if member.guild_permissions.administrator:
+        return True
+
+    # Usuarios con roles autorizados tienen acceso
+    return has_allowed_role(member)
+
 def load_whitelisted_guilds() -> set[int]:
     if not os.path.exists(WHITELIST_FILE):
         print("whitelist.json no existe. Ningun servidor esta autorizado.")
@@ -276,10 +284,88 @@ async def agregar_rol_limpieza(
         ephemeral=True
     )
 
+@tree.command(
+    name="quitar_rol_limpieza",
+    description="Quita un rol autorizado para comandos privados"
+)
+@app_commands.describe(
+    rol_id="ID del rol que será eliminado"
+)
+async def quitar_rol_limpieza(
+    interaction: discord.Interaction,
+    rol_id: str
+):
+
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "Este comando solo funciona dentro de servidores.",
+            ephemeral=True
+        )
+        return
+
+    # Verificar permisos
+    if not has_allowed_role(interaction.user):
+        await interaction.response.send_message(
+            "❌ No tienes permisos para quitar roles.",
+            ephemeral=True
+        )
+        return
+
+    # Convertir ID
+    try:
+        rol_id_int = int(rol_id)
+
+    except ValueError:
+        await interaction.response.send_message(
+            "❌ El ID del rol debe contener solamente números.",
+            ephemeral=True
+        )
+        return
+
+
+    roles_actuales = load_allowed_roles()
+
+
+    # Verificar existencia
+    if rol_id_int not in roles_actuales:
+        await interaction.response.send_message(
+            f"⚠️ El rol `{rol_id_int}` no está autorizado.",
+            ephemeral=True
+        )
+        return
+
+
+    # Quitar rol
+    roles_actuales.remove(rol_id_int)
+
+    save_allowed_roles(roles_actuales)
+
+
+    rol = interaction.guild.get_role(rol_id_int)
+
+
+    nombre_rol = rol.name if rol else "Rol eliminado"
+
+
+    await interaction.response.send_message(
+        "✅ Rol eliminado correctamente.\n\n"
+        f"🆔 ID: `{rol_id_int}`\n"
+        f"🏷️ Nombre: `{nombre_rol}`",
+        ephemeral=True
+    )
+
 @tree.command(name="link", description="Vincula este canal para que se limpie automaticamente")
 @app_commands.describe(horas="Cada cuantas horas se realizara la limpieza automatica (Por defecto: 24)")
-@app_commands.default_permissions(manage_channels=True)
+
 async def link(interaction: discord.Interaction, horas: int = 24):
+
+    if not can_use_cleanup(interaction.user):
+        await interaction.response.send_message(
+            "❌ No tienes permisos para usar este comando.",
+            ephemeral=True
+        )
+        return
+        
     guild_id = str(interaction.guild_id)
     channel_id = str(interaction.channel_id)
 
@@ -315,8 +401,16 @@ async def link(interaction: discord.Interaction, horas: int = 24):
     )
 
 @tree.command(name="unlink", description="Desvincula este canal del sistema de limpieza")
-@app_commands.default_permissions(manage_channels=True)
+
 async def unlink(interaction: discord.Interaction):
+
+    if not can_use_cleanup(interaction.user):
+        await interaction.response.send_message(
+            "❌ No tienes permisos para usar este comando.",
+            ephemeral=True
+        )
+        return
+        
     guild_id = str(interaction.guild_id)
     channel_id = str(interaction.channel_id)
 
@@ -336,8 +430,16 @@ async def unlink(interaction: discord.Interaction):
 
 @tree.command(name="configurar", description="Cambia el intervalo de horas de limpieza para este canal")
 @app_commands.describe(horas="Nuevo intervalo de horas para la limpieza automatica")
-@app_commands.default_permissions(manage_channels=True)
+
 async def configurar(interaction: discord.Interaction, horas: int):
+
+    if not can_use_cleanup(interaction.user):
+        await interaction.response.send_message(
+            "❌ No tienes permisos para usar este comando.",
+            ephemeral=True
+        )
+        return
+    
     guild_id = str(interaction.guild_id)
     channel_id = str(interaction.channel_id)
 
@@ -356,9 +458,161 @@ async def configurar(interaction: discord.Interaction, horas: int):
     else:
         await interaction.response.send_message("Este canal no esta vinculado. Usa `/link` primero.", ephemeral=True)
 
+@tree.command(
+    name="estado_limpieza",
+    description="Muestra el estado de las limpiezas automáticas configuradas"
+)
+async def estado_limpieza(interaction: discord.Interaction):
+
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "Este comando solo funciona dentro de servidores.",
+            ephemeral=True
+        )
+        return
+
+    if not can_use_cleanup(interaction.user):
+        await interaction.response.send_message(
+            "❌ No tienes permisos para usar este comando.",
+            ephemeral=True
+        )
+        return
+
+    guild_id = str(interaction.guild_id)
+
+    if guild_id not in linked_channels or not linked_channels[guild_id]:
+
+        embed = discord.Embed(
+            title="🧹 Estado de Limpieza",
+            description="No hay canales configurados para limpieza automática.",
+            color=discord.Color.orange()
+        )
+
+        await interaction.response.send_message(
+            embed=embed,
+            ephemeral=True
+        )
+        return
+
+
+    embed = discord.Embed(
+        title="🧹 Estado de Limpieza",
+        description=f"Servidor: **{interaction.guild.name}**",
+        color=discord.Color.blue(),
+        timestamp=datetime.now(timezone.utc)
+    )
+
+
+    current_time = datetime.now(timezone.utc)
+
+
+    for channel_id, config in linked_channels[guild_id].items():
+
+        channel = interaction.guild.get_channel(
+            int(channel_id)
+        )
+
+        nombre_canal = (
+            channel.mention
+            if channel
+            else f"Canal eliminado `{channel_id}`"
+        )
+
+
+        horas = config.get(
+            "hours",
+            0
+        )
+
+
+        try:
+
+            last_clean = datetime.fromisoformat(
+                config["last_clean"]
+            )
+
+            next_clean = (
+                last_clean +
+                timedelta(hours=horas)
+            )
+
+
+            if current_time >= next_clean:
+
+                estado = (
+                    "⚠️ Pendiente de limpieza"
+                )
+
+            else:
+
+                restante = (
+                    next_clean -
+                    current_time
+                )
+
+                horas_restantes = (
+                    restante.days * 24
+                    +
+                    restante.seconds // 3600
+                )
+
+                minutos_restantes = (
+                    restante.seconds % 3600
+                ) // 60
+
+
+                estado = (
+                    f"⏳ Próxima limpieza: "
+                    f"**{horas_restantes}h "
+                    f"{minutos_restantes}m**"
+                )
+
+
+            ultima = last_clean.strftime(
+                "%d/%m/%Y %H:%M UTC"
+            )
+
+
+        except Exception:
+
+            ultima = "Desconocida"
+            estado = "❌ Error calculando estado"
+
+
+
+        embed.add_field(
+            name=f"📌 {nombre_canal}",
+            value=(
+                f"⏱ Intervalo: **{horas} horas**\n"
+                f"🕒 Última limpieza:\n"
+                f"`{ultima}`\n"
+                f"{estado}"
+            ),
+            inline=False
+        )
+
+
+    embed.set_footer(
+        text=f"Solicitado por {interaction.user}"
+    )
+
+
+    await interaction.response.send_message(
+        embed=embed,
+        ephemeral=True
+    )
+
 @tree.command(name="limpiar_ahora", description="Ejecuta una limpieza completa de este canal en este preciso instante")
-@app_commands.default_permissions(manage_channels=True)
+
 async def limpiar_ahora(interaction: discord.Interaction):
+
+    if not can_use_cleanup(interaction.user):
+        await interaction.response.send_message(
+            "❌ No tienes permisos para usar este comando.",
+            ephemeral=True
+        )
+        return
+    
     guild_id = str(interaction.guild_id)
     channel_id = str(interaction.channel_id)
 
