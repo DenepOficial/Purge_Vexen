@@ -7,6 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 from flask import Flask
+from database import create_pool
 
 # =========================
 # CONFIGURACION DE FLASK
@@ -128,6 +129,7 @@ intents.message_content = True
 
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
+db = None
 
 # =========================
 # CANALES VINCULADOS Y CONFIGURACIÓN
@@ -917,6 +919,12 @@ async def on_ready():
     load_linked_channels()
     load_logs_channels()
 
+    global db
+
+    if db is None:
+        db = await create_pool()
+        print("Base de datos conectada")
+    
     for guild in client.guilds:
         await leave_if_not_whitelisted(guild)
 
