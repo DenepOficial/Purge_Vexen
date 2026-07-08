@@ -51,104 +51,82 @@ async def is_whitelisted(guild_id: int | None):
 # ROLES PERMITIDOS COMANDOS PRIVADOS
 # =========================
 
-ROLES_FILE = os.path.join(BASE_DIR, "roles_permitidos.json")
+async def get_allowed_roles(guild_id: int):
 
-
-def load_allowed_roles() -> set[int]:
-    if not os.path.exists(ROLES_FILE):
-        print("roles_permitidos.json no existe.")
-        return set()
-
-    try:
-        with open(ROLES_FILE, "r", encoding="utf-8") as file:
-            data = json.load(file)
-
-        roles = set()
-
-        for role_id in data.get("role_ids", []):
-            try:
-                roles.add(int(role_id))
-            except ValueError:
-                print(f"ID de rol invalido: {role_id}")
-
-        return roles
-
-    except Exception as e:
-        print(f"Error cargando roles permitidos: {e}")
-        return set()
-
-
-def save_allowed_roles(roles: set[int]):
-    try:
-        with open(ROLES_FILE, "w", encoding="utf-8") as file:
-            json.dump(
-                {
-                    "role_ids": [
-                        str(role_id) for role_id in roles
-                    ]
-                },
-                file,
-                indent=4
-            )
-
-    except Exception as e:
-        print(f"Error guardando roles permitidos: {e}")
-
-
-def has_allowed_role(member: discord.Member) -> bool:
-    allowed_roles = load_allowed_roles()
-
-    user_roles = {
-        role.id for role in member.roles
-    }
-
-    return bool(
-        user_roles.intersection(allowed_roles)
-    )
-
-def can_use_cleanup(member: discord.Member) -> bool:
-    # Administradores siempre tienen acceso
-    if member.guild_permissions.administrator:
-        return True
-
-    # Usuarios con roles autorizados tienen acceso
-    return has_allowed_role(member)
-
-def load_whitelisted_guilds() -> set[int]:
-    if not os.path.exists(WHITELIST_FILE):
-        print("whitelist.json no existe. Ningun servidor esta autorizado.")
-        return set()
-    try:
-        with open(WHITELIST_FILE, "r", encoding="utf-8") as file:
-            data = json.load(file)
-        raw_guilds = data.get("guild_ids", data if isinstance(data, list) else [])
-        guild_ids = set()
-        for raw_id in raw_guilds:
-            try:
-                guild_ids.add(int(raw_id))
-            except ValueError:
-                print(f"Guild ID invalido en whitelist.json: {raw_id}")
-        return guild_ids
-    except Exception as e:
-        print(f"Error cargando whitelist.json: {e}")
-        return set()
-
-async def is_whitelisted(guild_id: int | None):
-
-    if guild_id is None:
-        return False
-
-    result = await db.fetchrow(
+    rows = await db.fetch(
         f"""
-        SELECT guild_id
-        FROM {BOT_NAME}.whitelist
+        SELECT role_id
+        FROM {BOT_NAME}.allowed_roles
         WHERE guild_id = $1
         """,
         guild_id
     )
 
-    return result is not None
+    return {
+        row["role_id"]
+        for row in rows
+    }
 
+
+async def add_allowed_role(guild_id: int, role_id: int):
+
+    await db.execute(
+        f"""
+        INSERT INTO {BOT_NAME}.allowed_roles
+        (
+            guild_id,
+            role_id
+        )
+        VALUES
+        (
+            $1,
+            $2
+        )
+        ON CONFLICT (guild_id, role_id)
+        DO NOTHING
+        """,
+        guild_id,
+        role_id
+    )
+
+
+async def remove_allowed_role(guild_id: int, role_id: int):
+
+    await db.execute(
+        f"""
+        DELETE FROM {BOT_NAME}.allowed_roles
+        WHERE guild_id = $1
+        AND role_id = $2
+        """,
+        guild_id,
+        role_id
+    )
+
+
+async def has_allowed_role(member: discord.Member):
+
+    allowed_roles = await get_allowed_roles(
+        member.guild.id
+    )
+
+    user_roles = {
+        role.id
+        for role in member.roles
+    }
+
+    return bool(
+        user_roles.intersection(
+            allowed_roles
+        )
+    )
+
+
+async def can_use_cleanup(member: discord.Member):
+
+    if member.guild_permissions.administrator:
+        return True
+
+    return await has_allowed_role(member)
 # =========================
 # CONFIGURACION DEL BOT
 # =========================
@@ -346,7 +324,7 @@ async def agregar_rol_limpieza(
 
 
     # Verificar que el usuario tenga un rol autorizado
-    if not has_allowed_role(interaction.user):
+    if not await has_allowed_role(interaction.user):
         await interaction.response.send_message(
             "❌ No tienes permisos para agregar roles.",
             ephemeral=True
@@ -377,7 +355,9 @@ async def agregar_rol_limpieza(
         return
 
 
-    roles_actuales = load_allowed_roles()
+    roles_actuales = await get_allowed_roles(
+        interaction.guild.id
+    )
 
 
     # Evitar duplicados
@@ -390,9 +370,10 @@ async def agregar_rol_limpieza(
 
 
     # Guardar nuevo rol
-    roles_actuales.add(rol_id_int)
-
-    save_allowed_roles(roles_actuales)
+    await add_allowed_role(
+        interaction.guild.id,
+        rol_id_int
+    )
 
 
     await interaction.response.send_message(
@@ -422,7 +403,7 @@ async def quitar_rol_limpieza(
         return
 
     # Verificar permisos
-    if not has_allowed_role(interaction.user):
+    if not await has_allowed_role(interaction.user):
         await interaction.response.send_message(
             "❌ No tienes permisos para quitar roles.",
             ephemeral=True
@@ -441,7 +422,9 @@ async def quitar_rol_limpieza(
         return
 
 
-    roles_actuales = load_allowed_roles()
+    roles_actuales = await get_allowed_roles(
+        interaction.guild.id
+    )
 
 
     # Verificar existencia
@@ -454,9 +437,10 @@ async def quitar_rol_limpieza(
 
 
     # Quitar rol
-    roles_actuales.remove(rol_id_int)
-
-    save_allowed_roles(roles_actuales)
+    await remove_allowed_role(
+        interaction.guild.id,
+        rol_id_int
+    )
 
 
     rol = interaction.guild.get_role(rol_id_int)
@@ -492,7 +476,7 @@ async def config_logs(
         return
 
 
-    if not can_use_cleanup(interaction.user):
+    if not await can_use_cleanup(interaction.user):
         await interaction.response.send_message(
             "❌ No tienes permisos para configurar logs.",
             ephemeral=True
@@ -537,7 +521,7 @@ async def config_logs(
 
 async def link(interaction: discord.Interaction, horas: int = 24):
 
-    if not can_use_cleanup(interaction.user):
+    if not await can_use_cleanup(interaction.user):
         await interaction.response.send_message(
             "❌ No tienes permisos para usar este comando.",
             ephemeral=True
@@ -603,7 +587,7 @@ async def link(interaction: discord.Interaction, horas: int = 24):
 
 async def unlink(interaction: discord.Interaction):
 
-    if not can_use_cleanup(interaction.user):
+    if not await can_use_cleanup(interaction.user):
         await interaction.response.send_message(
             "❌ No tienes permisos para usar este comando.",
             ephemeral=True
@@ -646,7 +630,7 @@ async def unlink(interaction: discord.Interaction):
 
 async def configurar(interaction: discord.Interaction, horas: int):
 
-    if not can_use_cleanup(interaction.user):
+    if not await can_use_cleanup(interaction.user):
         await interaction.response.send_message(
             "❌ No tienes permisos para usar este comando.",
             ephemeral=True
@@ -685,7 +669,7 @@ async def estado_limpieza(interaction: discord.Interaction):
         )
         return
 
-    if not can_use_cleanup(interaction.user):
+    if not await can_use_cleanup(interaction.user):
         await interaction.response.send_message(
             "❌ No tienes permisos para usar este comando.",
             ephemeral=True
@@ -822,7 +806,7 @@ async def estado_limpieza(interaction: discord.Interaction):
 
 async def limpiar_ahora(interaction: discord.Interaction):
 
-    if not can_use_cleanup(interaction.user):
+    if not await can_use_cleanup(interaction.user):
         await interaction.response.send_message(
             "❌ No tienes permisos para usar este comando.",
             ephemeral=True
