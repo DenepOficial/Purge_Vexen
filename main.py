@@ -7,7 +7,9 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 from flask import Flask
-from database import create_pool
+from database import create_pool, BOT_NAME
+
+db = None
 
 # =========================
 # CONFIGURACION DE FLASK
@@ -26,9 +28,24 @@ def run_server():
 # SERVIDORES PERMITIDOS (WHITELIST)
 # =========================
 BASE_DIR = os.path.dirname(__file__)
-WHITELIST_FILE = os.path.join(BASE_DIR, "whitelist.json")
 SUPPORT_DISCORD = os.getenv("SUPPORT_DISCORD", "denepoficial")
 ACCESS_REQUEST_URL = os.getenv("ACCESS_REQUEST_URL", "https://discord.com/channels/@denepoficial")
+
+async def is_whitelisted(guild_id: int | None):
+
+    if guild_id is None:
+        return False
+
+    result = await db.fetchrow(
+        f"""
+        SELECT guild_id
+        FROM {BOT_NAME}.whitelist
+        WHERE guild_id = $1
+        """,
+        guild_id
+    )
+
+    return result is not None
 
 # =========================
 # ROLES PERMITIDOS COMANDOS PRIVADOS
@@ -116,8 +133,21 @@ def load_whitelisted_guilds() -> set[int]:
         print(f"Error cargando whitelist.json: {e}")
         return set()
 
-def is_whitelisted(guild_id: int | None) -> bool:
-    return guild_id is not None and guild_id in load_whitelisted_guilds()
+async def is_whitelisted(guild_id: int | None):
+
+    if guild_id is None:
+        return False
+
+    result = await db.fetchrow(
+        f"""
+        SELECT guild_id
+        FROM {BOT_NAME}.whitelist
+        WHERE guild_id = $1
+        """,
+        guild_id
+    )
+
+    return result is not None
 
 # =========================
 # CONFIGURACION DEL BOT
@@ -240,7 +270,7 @@ async def find_notice_channel(guild: discord.Guild):
     return None
 
 async def leave_if_not_whitelisted(guild: discord.Guild):
-    if is_whitelisted(guild.id): return
+    if await is_whitelisted(guild.id): return
     print(f"Saliendo de servidor no autorizado: {guild.name} ({guild.id})")
     notice_channel = await find_notice_channel(guild)
     if notice_channel:
@@ -528,7 +558,7 @@ async def link(interaction: discord.Interaction, horas: int = 24):
         await interaction.response.send_message("Este comando solo puede usarse dentro de un servidor.", ephemeral=True)
         return
 
-    if not is_whitelisted(interaction.guild_id):
+    if not await is_whitelisted(interaction.guild_id):
         await interaction.response.send_message("Este servidor no esta autorizado para usar el bot.", ephemeral=True)
         return
 
@@ -807,7 +837,7 @@ async def limpiar_ahora(interaction: discord.Interaction):
         return
 
     # Sigue respetando que el servidor principal sea miembro de la whitelist
-    if not is_whitelisted(interaction.guild_id):
+    if not await is_whitelisted(interaction.guild_id):
         await interaction.response.send_message("Este servidor no esta autorizado.", ephemeral=True)
         return
 
