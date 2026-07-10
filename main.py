@@ -1150,41 +1150,22 @@ async def auto_cleanER_task():
 # =========================
 
 @client.event
-    async def on_ready():
-
+async def on_ready():
     global cleanup_lock
-        global db
-
-        if db is None:
-            db = await create_pool()
-            print("Base de datos conectada")
-
-        for guild in client.guilds:
-            await leave_if_not_whitelisted(guild)
-
-        await tree.sync()
-
-        if not auto_cleanER_task.is_running():
-            auto_cleanER_task.start()
-
-        print(f"Conectado como {client.user}")
-
-
     global db
 
     if db is None:
         db = await create_pool()
         print("Base de datos conectada")
-    
+
     for guild in client.guilds:
         await leave_if_not_whitelisted(guild)
 
     await tree.sync()
-    
-    # Iniciar el bucle de limpieza automática si no está corriendo
+
     if not auto_cleanER_task.is_running():
         auto_cleanER_task.start()
-        
+
     print(f"Conectado como {client.user}")
 
 @client.event
