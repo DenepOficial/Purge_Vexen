@@ -1148,12 +1148,8 @@ async def auto_cleanER_task():
 # =========================
 # ON READY / GUILD JOIN
 # =========================
+
 @client.event
-async def on_ready():
-
-    global cleanup_lock
-
-    @client.event
     async def on_ready():
 
     global cleanup_lock
