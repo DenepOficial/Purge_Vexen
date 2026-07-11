@@ -1151,6 +1151,33 @@ async def auto_cleanER_task():
 
 
 # =========================
+# COMANDO DE TEXTO PARA REINICIAR / SINCRONIZAR COMANDOS
+# =========================
+@client.event
+async def on_message(message: discord.Message):
+    # Ignorar mensajes de otros bots o si no es en un servidor
+    if message.author.bot or message.guild is None:
+        return
+
+    # Prefijo del comando: !sync
+    if message.content.lower() == "!sync":
+        # Verificar si el usuario tiene un rol permitido o es administrador
+        if not await can_use_cleanup(message.author):
+            await message.channel.send("❌ No tienes permisos para usar este comando.")
+            return
+
+        await message.channel.send("🔄 Sincronizando comandos globales de la aplicación... Esto puede tomar unos minutos.")
+        
+        try:
+            # Sincroniza los Slash Commands con la API de Discord
+            synced = await tree.sync()
+            await message.channel.send(f"✅ ¡Éxito! Se han sincronizado {len(synced)} comandos globales correctamente.")
+            print(f"Sincronización manual ejecutada por {message.author} en {message.guild.name}")
+        except Exception as e:
+            await message.channel.send(f"❌ Hubo un error al sincronizar los comandos: `{e}`")
+
+
+# =========================
 # ON READY / GUILD JOIN
 # =========================
 
@@ -1166,7 +1193,7 @@ async def on_ready():
     for guild in client.guilds:
         await leave_if_not_whitelisted(guild)
 
-    await tree.sync()
+    # SE ELIMINÓ 'await tree.sync()' de aquí para evitar Rate Limits al iniciar en Render/Heroku
 
     if not auto_cleanER_task.is_running():
         auto_cleanER_task.start()
