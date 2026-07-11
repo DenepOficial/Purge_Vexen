@@ -714,9 +714,14 @@ async def config_logs(
     description="Vincula este canal para que se limpie automaticamente"
 )
 @app_commands.describe(
-    horas="Cada cuantas horas se realizara la limpieza automatica (Por defecto: 24)"
+    canal="Canal que deseas vincular (opcional)",
+    horas="Cada cuantas horas se realizará la limpieza automática"
 )
-async def link(interaction: discord.Interaction, horas: int = 24):
+async def link(
+    interaction: discord.Interaction,
+    horas: int = 24,
+    canal: discord.TextChannel | discord.VoiceChannel | None = None
+):
 
     if interaction.guild_id is None or interaction.guild is None:
         await interaction.response.send_message(
@@ -732,7 +737,7 @@ async def link(interaction: discord.Interaction, horas: int = 24):
         )
         return
 
-    if not isinstance(interaction.channel, (discord.TextChannel, discord.VoiceChannel)):
+    if not isinstance(canal, (discord.TextChannel, discord.VoiceChannel)):
         await interaction.response.send_message(
             "Este comando solo funciona en canales con chat.",
             ephemeral=True
@@ -755,7 +760,7 @@ async def link(interaction: discord.Interaction, horas: int = 24):
 
     existing = await get_linked_channel(
         interaction.guild_id,
-        interaction.channel_id
+        canal.id
     )
 
     if existing is not None:
@@ -767,7 +772,7 @@ async def link(interaction: discord.Interaction, horas: int = 24):
 
     await add_linked_channel(
         interaction.guild_id,
-        interaction.channel_id,
+        canal.id,
         horas
     )
 
@@ -777,7 +782,7 @@ async def link(interaction: discord.Interaction, horas: int = 24):
             title="🔗 Canal Vinculado",
             description=(
                 f"Usuario: {interaction.user.mention}\n"
-                f"Canal: {interaction.channel.mention}\n"
+                f"Canal: {canal.mention}\n"
                 f"Intervalo: **{horas} horas**"
             ),
             color=discord.Color.blue(),
